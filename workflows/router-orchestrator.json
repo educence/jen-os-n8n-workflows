@@ -54,7 +54,7 @@
         "propertiesUi": {
           "propertyValues": [
             {
-              "key": "Status|select",
+              "key": "Status",
               "selectValue": "CLAIMED"
             }
           ]
@@ -101,15 +101,15 @@
         "propertiesUi": {
           "propertyValues": [
             {
-              "key": "Status|select",
+              "key": "Status",
               "selectValue": "DONE"
             },
             {
-              "key": "Execution Notes|rich_text",
+              "key": "Execution Notes",
               "textContent": "={{ $json.content[0].text }}"
             },
             {
-              "key": "Executed By|rich_text",
+              "key": "Executed By",
               "textContent": "n8n-orchestrator"
             }
           ]
