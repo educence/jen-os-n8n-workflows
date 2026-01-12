@@ -1,0 +1,38 @@
+name: SSH Executor
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Command to execute on remote server'
+        required: true
+        type: string
+      host:
+        description: 'Target host'
+        required: false
+        default: '157.180.30.27'
+        type: string
+      user:
+        description: 'SSH user'
+        required: false
+        default: 'jen'
+        type: string
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ inputs.host }} >> ~/.ssh/known_hosts
+
+      - name: Execute Command
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ inputs.user }}@${{ inputs.host }} "${{ inputs.command }}"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
