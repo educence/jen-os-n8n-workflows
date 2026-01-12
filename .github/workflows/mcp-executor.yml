@@ -1,0 +1,83 @@
+# MCP Executor Workflow - Runs on self-hosted runner with local SSH key
+# Claude emits workflow_dispatch requests, runner executes with local secrets
+
+name: MCP Executor
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action type: ssh_exec, file_read, status_check'
+        required: true
+        type: choice
+        options:
+          - ssh_exec
+          - status_check
+          - file_read
+      target:
+        description: 'Connection ID from registry (e.g., hetzner-main)'
+        required: true
+        default: 'hetzner-main'
+      command:
+        description: 'Command to execute (for ssh_exec)'
+        required: false
+        default: 'echo "connected"'
+      path:
+        description: 'File path (for file_read)'
+        required: false
+
+jobs:
+  execute:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    
+    steps:
+      - name: Validate Action
+        run: |
+          echo "Action: ${{ inputs.action }}"
+          echo "Target: ${{ inputs.target }}"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          
+      - name: Resolve Connection
+        id: resolve
+        run: |
+          # Connection registry - maps target IDs to actual hosts
+          case "${{ inputs.target }}" in
+            "hetzner-main")
+              echo "host=157.180.30.27" >> $GITHUB_OUTPUT
+              echo "user=jen" >> $GITHUB_OUTPUT
+              echo "key_path=$HOME/.ssh/id_ed25519" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "::error::Unknown target: ${{ inputs.target }}"
+              exit 1
+              ;;
+          esac
+          
+      - name: Execute SSH Command
+        if: inputs.action == 'ssh_exec'
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=10 \
+              -i "${{ steps.resolve.outputs.key_path }}" \
+              "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}" \
+              "${{ inputs.command }}"
+              
+      - name: Status Check
+        if: inputs.action == 'status_check'
+        run: |
+          echo "Checking connection to ${{ inputs.target }}..."
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=10 \
+              -i "${{ steps.resolve.outputs.key_path }}" \
+              "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}" \
+              "hostname && uptime && docker ps --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || echo 'Docker not running'"
+              
+      - name: Read File
+        if: inputs.action == 'file_read'
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=10 \
+              -i "${{ steps.resolve.outputs.key_path }}" \
+              "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}" \
+              "cat '${{ inputs.path }}'"
