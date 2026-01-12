@@ -1,4 +1,4 @@
-# MCP Executor Workflow - Runs on self-hosted runner with local SSH key
+# MCP Executor Workflow - Windows self-hosted runner with Git SSH
 # Claude emits workflow_dispatch requests, runner executes with local secrets
 
 name: MCP Executor
@@ -26,6 +26,10 @@ on:
         description: 'File path (for file_read)'
         required: false
 
+env:
+  # Use Git's SSH on Windows
+  GIT_SSH: "C:\\Program Files\\Git\\usr\\bin\\ssh.exe"
+
 jobs:
   execute:
     runs-on: self-hosted
@@ -33,51 +37,79 @@ jobs:
     
     steps:
       - name: Validate Action
+        shell: pwsh
         run: |
-          echo "Action: ${{ inputs.action }}"
-          echo "Target: ${{ inputs.target }}"
-          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          Write-Host "Action: ${{ inputs.action }}"
+          Write-Host "Target: ${{ inputs.target }}"
+          Write-Host "Timestamp: $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')"
+          Write-Host "Runner OS: $env:OS"
           
       - name: Resolve Connection
         id: resolve
+        shell: pwsh
         run: |
           # Connection registry - maps target IDs to actual hosts
-          case "${{ inputs.target }}" in
-            "hetzner-main")
-              echo "host=157.180.30.27" >> $GITHUB_OUTPUT
-              echo "user=jen" >> $GITHUB_OUTPUT
-              echo "key_path=$HOME/.ssh/id_ed25519" >> $GITHUB_OUTPUT
-              ;;
-            *)
-              echo "::error::Unknown target: ${{ inputs.target }}"
+          switch ("${{ inputs.target }}") {
+            "hetzner-main" {
+              "host=157.180.30.27" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+              "user=jen" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+              "key_path=$env:USERPROFILE\.ssh\id_ed25519" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            }
+            default {
+              Write-Error "Unknown target: ${{ inputs.target }}"
               exit 1
-              ;;
-          esac
+            }
+          }
+          
+      - name: Test SSH Connection
+        shell: pwsh
+        run: |
+          $sshPath = "C:\Program Files\Git\usr\bin\ssh.exe"
+          $keyPath = "${{ steps.resolve.outputs.key_path }}"
+          $user = "${{ steps.resolve.outputs.user }}"
+          $host = "${{ steps.resolve.outputs.host }}"
+          
+          Write-Host "SSH Path: $sshPath"
+          Write-Host "Key Path: $keyPath"
+          Write-Host "Target: $user@$host"
+          
+          # Check if key exists
+          if (Test-Path $keyPath) {
+            Write-Host "SSH key found"
+          } else {
+            Write-Error "SSH key not found at $keyPath"
+            exit 1
+          }
           
       - name: Execute SSH Command
         if: inputs.action == 'ssh_exec'
+        shell: pwsh
         run: |
-          ssh -o StrictHostKeyChecking=accept-new \
-              -o ConnectTimeout=10 \
-              -i "${{ steps.resolve.outputs.key_path }}" \
-              "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}" \
-              "${{ inputs.command }}"
+          $sshPath = "C:\Program Files\Git\usr\bin\ssh.exe"
+          $keyPath = "${{ steps.resolve.outputs.key_path }}"
+          $target = "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}"
+          $command = "${{ inputs.command }}"
+          
+          & $sshPath -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes -i $keyPath $target $command
               
       - name: Status Check
         if: inputs.action == 'status_check'
+        shell: pwsh
         run: |
-          echo "Checking connection to ${{ inputs.target }}..."
-          ssh -o StrictHostKeyChecking=accept-new \
-              -o ConnectTimeout=10 \
-              -i "${{ steps.resolve.outputs.key_path }}" \
-              "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}" \
-              "hostname && uptime && docker ps --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || echo 'Docker not running'"
+          $sshPath = "C:\Program Files\Git\usr\bin\ssh.exe"
+          $keyPath = "${{ steps.resolve.outputs.key_path }}"
+          $target = "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}"
+          
+          Write-Host "Checking connection to ${{ inputs.target }}..."
+          & $sshPath -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes -i $keyPath $target "hostname && uptime && docker ps --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || echo 'Docker not running'"
               
       - name: Read File
         if: inputs.action == 'file_read'
+        shell: pwsh
         run: |
-          ssh -o StrictHostKeyChecking=accept-new \
-              -o ConnectTimeout=10 \
-              -i "${{ steps.resolve.outputs.key_path }}" \
-              "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}" \
-              "cat '${{ inputs.path }}'"
+          $sshPath = "C:\Program Files\Git\usr\bin\ssh.exe"
+          $keyPath = "${{ steps.resolve.outputs.key_path }}"
+          $target = "${{ steps.resolve.outputs.user }}@${{ steps.resolve.outputs.host }}"
+          $filePath = "${{ inputs.path }}"
+          
+          & $sshPath -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes -i $keyPath $target "cat '$filePath'"
