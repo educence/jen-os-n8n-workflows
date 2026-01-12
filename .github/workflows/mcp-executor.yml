@@ -1,5 +1,6 @@
 # MCP Executor Workflow - Windows self-hosted runner with Git SSH
 # Claude emits workflow_dispatch requests, runner executes with local secrets
+# SECURITY: Command allowlist enforced before execution
 
 name: MCP Executor
 
@@ -19,16 +20,12 @@ on:
         required: true
         default: 'hetzner-main'
       command:
-        description: 'Command to execute (for ssh_exec)'
+        description: 'Command to execute (for ssh_exec) - must match allowlist'
         required: false
         default: 'echo "connected"'
       path:
-        description: 'File path (for file_read)'
+        description: 'File path (for file_read) - must match allowlist'
         required: false
-
-env:
-  # Use Git's SSH on Windows
-  GIT_SSH: "C:\\Program Files\\Git\\usr\\bin\\ssh.exe"
 
 jobs:
   execute:
@@ -36,19 +33,98 @@ jobs:
     timeout-minutes: 5
     
     steps:
-      - name: Validate Action
+      - name: Log Request
         shell: pwsh
         run: |
+          $timestamp = Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ'
+          Write-Host "========== MCP EXECUTOR LOG =========="
+          Write-Host "Timestamp: $timestamp"
           Write-Host "Action: ${{ inputs.action }}"
           Write-Host "Target: ${{ inputs.target }}"
-          Write-Host "Timestamp: $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')"
-          Write-Host "Runner OS: $env:OS"
+          Write-Host "Command: ${{ inputs.command }}"
+          Write-Host "Path: ${{ inputs.path }}"
+          Write-Host "Runner: $env:COMPUTERNAME"
+          Write-Host "======================================="
+
+      - name: Validate Command Allowlist
+        if: inputs.action == 'ssh_exec'
+        shell: pwsh
+        run: |
+          # SECURITY: Only these command patterns are allowed
+          $allowlist = @(
+            '^echo ',
+            '^hostname$',
+            '^uptime$',
+            '^whoami$',
+            '^pwd$',
+            '^ls ',
+            '^cat ',
+            '^docker ps',
+            '^docker stats',
+            '^docker logs ',
+            '^systemctl status ',
+            '^systemctl restart n8n',
+            '^curl -L .+cloudflared',
+            '^dpkg -i cloudflared',
+            '^cloudflared ',
+            '^sudo dpkg -i cloudflared',
+            '^sudo systemctl ',
+            '^mkdir -p ',
+            '^touch '
+          )
           
+          $command = "${{ inputs.command }}"
+          $allowed = $false
+          
+          foreach ($pattern in $allowlist) {
+            if ($command -match $pattern) {
+              $allowed = $true
+              Write-Host "Command matches allowlist pattern: $pattern"
+              break
+            }
+          }
+          
+          if (-not $allowed) {
+            Write-Error "SECURITY: Command not in allowlist: $command"
+            Write-Error "Allowed patterns: $($allowlist -join ', ')"
+            exit 1
+          }
+          
+          Write-Host "Command validated: $command"
+
+      - name: Validate Path Allowlist  
+        if: inputs.action == 'file_read'
+        shell: pwsh
+        run: |
+          # SECURITY: Only these path patterns are allowed
+          $pathAllowlist = @(
+            '^/home/jen/',
+            '^/etc/n8n',
+            '^/var/log/',
+            '^\.n8n/',
+            '^~/'
+          )
+          
+          $filePath = "${{ inputs.path }}"
+          $allowed = $false
+          
+          foreach ($pattern in $pathAllowlist) {
+            if ($filePath -match $pattern) {
+              $allowed = $true
+              Write-Host "Path matches allowlist pattern: $pattern"
+              break
+            }
+          }
+          
+          if (-not $allowed) {
+            Write-Error "SECURITY: Path not in allowlist: $filePath"
+            exit 1
+          }
+
       - name: Resolve Connection
         id: resolve
         shell: pwsh
         run: |
-          # Connection registry - maps target IDs to actual hosts
           switch ("${{ inputs.target }}") {
             "hetzner-main" {
               "host=157.180.30.27" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -61,25 +137,15 @@ jobs:
             }
           }
           
-      - name: Test SSH Connection
+      - name: Verify SSH Key Exists
         shell: pwsh
         run: |
-          $sshPath = "C:\Program Files\Git\usr\bin\ssh.exe"
           $keyPath = "${{ steps.resolve.outputs.key_path }}"
-          $user = "${{ steps.resolve.outputs.user }}"
-          $host = "${{ steps.resolve.outputs.host }}"
-          
-          Write-Host "SSH Path: $sshPath"
-          Write-Host "Key Path: $keyPath"
-          Write-Host "Target: $user@$host"
-          
-          # Check if key exists
-          if (Test-Path $keyPath) {
-            Write-Host "SSH key found"
-          } else {
+          if (-not (Test-Path $keyPath)) {
             Write-Error "SSH key not found at $keyPath"
             exit 1
           }
+          Write-Host "SSH key verified at $keyPath"
           
       - name: Execute SSH Command
         if: inputs.action == 'ssh_exec'
