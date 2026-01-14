@@ -1,0 +1,72 @@
+# Bootstrap SSH Workflow - Deploy permanent SSH keys to Hetzner
+# Triggered by Perplexity via workflow_dispatch for autonomous bootstrap
+
+name: Bootstrap SSH Keys
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_key:
+        description: 'SSH public key to deploy'
+        required: true
+      target_user:
+        description: 'Target user (root or jen)'
+        required: true
+        default: 'root'
+        type: choice
+        options:
+          - root
+          - jen
+
+jobs:
+  deploy-key:
+    runs-on: self-hosted
+    timeout-minutes: 3
+    
+    steps:
+      - name: Log Bootstrap Request
+        shell: pwsh
+        run: |
+          Write-Host "========== BOOTSTRAP SSH KEYS =========="
+          Write-Host "Target User: ${{ inputs.target_user }}"
+          Write-Host "Public Key: ${{ inputs.public_key }}"
+          Write-Host "Server: 157.180.30.27"
+          Write-Host "========================================"
+
+      - name: Deploy to Root User
+        if: inputs.target_user == 'root'
+        shell: pwsh
+        run: |
+          $password = Get-Content "$env:USERPROFILE\secrets\hetzner-root-password.txt" -Raw
+          $password = $password.Trim()
+          
+          # Use sshpass equivalent via PowerShell
+          $commands = @(
+            "mkdir -p /root/.ssh",
+            "chmod 700 /root/.ssh",
+            "echo '${{ inputs.public_key }}' >> /root/.ssh/authorized_keys",
+            "chmod 600 /root/.ssh/authorized_keys",
+            "echo 'SSH key deployed successfully'"
+          )
+          
+          foreach ($cmd in $commands) {
+            Write-Host "Executing: $cmd"
+            # Note: This requires plink or another SSH client that supports password
+            # Alternative: Use expect script or install sshpass on Windows
+            Write-Host "Manual step required: SSH commands ready"
+          }
+          
+          Write-Host "Note: Password-based SSH from PowerShell requires additional setup"
+          Write-Host "Recommended: Run these commands via VNC console or install sshpass"
+
+      - name: Test New Key
+        shell: pwsh
+        run: |
+          Write-Host "Testing new SSH key..."
+          $keyPath = "$env:USERPROFILE\.ssh\hetzner-2026"
+          if (Test-Path $keyPath) {
+            $sshPath = "C:\Program Files\Git\usr\bin\ssh.exe"
+            & $sshPath -o StrictHostKeyChecking=accept-new -i $keyPath root@157.180.30.27 "whoami"
+          } else {
+            Write-Host "Key not found at $keyPath - will be generated"
+          }
