@@ -1,0 +1,4 @@
+Bootstrap trigger: 2026-01-14 02:10 EST
+Action: Test SSH connection to Hetzner
+Target: jen@157.180.30.27
+Expected: Connection successful, n8n status check
